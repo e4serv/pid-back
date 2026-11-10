@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PID-Back: PIDアーカイブ検索</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#1d2430; --muted:#5d6878; --line:#dde2ea;
+  --accent:#1f5fae; --accent-soft:#e7effa; --warn:#9a5b00; --ok:#2d7a3e; --bad:#b3261e;
+  --sans:"Noto Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#12161c; --surface:#1a2029; --fg:#e4e8ee; --muted:#9aa5b4; --line:#2c3440;
+  --accent:#7fb2f0; --accent-soft:#1f2c3d; --warn:#e3b05a; --ok:#7cc48b; --bad:#f08a80; color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.6;font-size:15px;padding:32px 16px 48px}
+.wrap{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:24px}
+h1{font-size:1.5rem;margin:0;font-weight:700}
+.lead{margin:4px 0 0;color:var(--muted);font-size:.95rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px}
+label{font-weight:500;font-size:.9rem}
+textarea{width:100%;min-height:110px;font-family:var(--mono);font-size:.88rem;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:vertical}
+textarea:focus,input:focus,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.row label{font-weight:400;color:var(--muted)}
+input[type=date]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.btn{font:inherit;font-weight:500;border:0;border-radius:8px;padding:9px 18px;background:var(--accent);color:var(--surface);cursor:pointer}
+.btn:disabled{opacity:.6;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+.hint{font-size:.82rem;color:var(--muted);margin:0}
+.hint code{font-family:var(--mono);font-size:.8rem}
+details.hint summary{cursor:pointer;color:var(--accent)}
+details.hint ul{margin:8px 0 0;padding-left:1.2em;display:flex;flex-direction:column;gap:2px}
+.results{display:flex;flex-direction:column;gap:12px}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:.88rem}
+.meta dt{color:var(--muted)}
+.meta dd{margin:0;font-family:var(--mono);word-break:break-all;min-width:0}
+.meta dd a{color:var(--accent)}
+.status{font-size:.82rem;color:var(--muted)}
+.status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+.links{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.links a{text-decoration:none;font-size:.88rem;font-weight:500;padding:6px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent);border:1px solid transparent}
+.links a:hover{border-color:var(--accent)}
+.copy{font:inherit;font-size:.8rem;background:none;border:0;color:var(--muted);cursor:pointer;padding:0;text-decoration:underline;align-self:flex-start}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>PID-Back: PIDアーカイブ検索</h1>
+    <p class="lead">ウェブページのURLや、DOI・ハンドルなどの永続的識別子（PID）を入れると、インターネットアーカイブ（Wayback Machine）に保存されたページへのリンクを表示します。識別子は実際のページのURLに解決してから探すので、保存されている本体のページにたどり着けます。</p>
+  </header>
+
+  <form class="card" id="f">
+    <label for="urls">URL・識別子（複数ある場合は1行に1つ）</label>
+    <textarea id="urls" spellcheck="false" placeholder="https://example.repo.nii.ac.jp/records/00000&#10;10.00000/00000000&#10;hdl:0000/00000000&#10;ark:/00000/xxxxxxxx&#10;info:ndljp/pid/0000000"></textarea>
+    <div class="row">
+      <label for="date">日付を指定（任意・その日に最も近い保存版）</label>
+      <input type="date" id="date">
+    </div>
+    <div class="row">
+      <button class="btn" type="submit" id="go">Wayback で探す</button>
+      <button class="btn ghost" type="button" id="clear">クリア</button>
+    </div>
+    <details class="hint">
+      <summary>対応している識別子</summary>
+      <ul>
+        <li>DOI（<code>10.xxxx/…</code>、<code>doi:</code>、<code>https://doi.org/…</code>）、ハンドル（<code>hdl:</code>、<code>https://hdl.handle.net/…</code>）</li>
+        <li>ARK（<code>ark:/00000/…</code>）、URN:NBN（<code>urn:nbn:de:…</code> など）、PURL・w3id・n2t などの解決サービスのURL</li>
+        <li>ORCID、ISNI（<code>isni:</code>）、ROR（<code>ror:</code>）、arXiv（<code>arXiv:</code>）、PMID（<code>PMID:</code>）、PMCID（<code>PMC…</code>）、Wikidata（<code>wikidata:Q…</code>）、VIAF（<code>viaf:</code>）</li>
+        <li>NDL PID（<code>info:ndljp/pid/…</code>）、CRID（<code>crid:</code>）、NCID（<code>ncid:</code>）、NAID（<code>naid:</code>）</li>
+        <li>その他 <code>接頭辞:ID</code> 形式の識別子（identifiers.org に登録されているもの）</li>
+      </ul>
+    </details>
+    <p class="hint">※PIDはすべて解決できるとは限りません。その場合は識別子のURLのまま Wayback を探します。<br>※入力したURLや識別子は、解決や保存状況の確認のため、doi.org、hdl.handle.net、identifiers.org、archive.org、各識別子の解決サービスに送られます。非公開にしたいURLを調べる場合は注意してください。</p>
+  </form>
+
+  <section class="results" id="out" aria-live="polite"></section></div>
+
+<script>
+const WB = "https://web.archive.org";
+const TIMEOUT = 15000;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// 壊れた % 表記でも止まらないように
+const dec = s => { try{ return decodeURIComponent(s); }catch{ return s; } };
+// APIのパスに入れる識別子：? と # がクエリやフラグメントとして扱われないようにする
+const encPath = s => encodeURI(s).replace(/[?#]/g, encodeURIComponent);
+// 外部から受け取ったURLは http / https のものだけ使う（javascript: などを防ぐ）
+function safeHttp(u){
+  try{
+    const x = new URL(u);
+    if(x.protocol==="http:" || x.protocol==="https:") return x.href;
+  }catch{}
+  throw new Error("http/https 以外のURLが返されたため使用しません");
+}
+
+/* ---------- 入力の判定 ----------
+   method:
+     handle   … Handle API（doi.org / hdl.handle.net）で解決先URLを取得
+     redirect … 解決サービスのリダイレクトをたどって解決先URLを取得
+     template … 識別子から決まった形のURLに変換（その識別子の公式ページ）
+     curie    … identifiers.org の解決APIで解決
+     url      … ふつうのURL
+*/
+const TEMPLATES = [
+  // [種類名, 正規表現, URLの作り方]
+  ["ORCID",    /^(?:orcid:\s*)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i, m=>`https://orcid.org/${m[1].toUpperCase()}`],
+  ["ISNI",     /^isni:?\s*(\d{4}\s?\d{4}\s?\d{4}\s?\d{3}[\dX])$/i,  m=>`https://isni.org/isni/${m[1].replace(/\s/g,"").toUpperCase()}`],
+  ["ROR",      /^ror:\s*(0[a-z0-9]{6}\d{2})$/i,                    m=>`https://ror.org/${m[1].toLowerCase()}`],
+  ["arXiv",    /^arxiv:\s*(\S+)$/i,                                m=>`https://arxiv.org/abs/${m[1]}`],
+  ["PMID",     /^pmid:?\s*(\d+)$/i,                                m=>`https://pubmed.ncbi.nlm.nih.gov/${m[1]}/`],
+  ["PMCID",    /^(?:pmcid:\s*)?(PMC\d+)$/i,                        m=>`https://pmc.ncbi.nlm.nih.gov/articles/${m[1].toUpperCase()}/`],
+  ["Wikidata", /^wikidata:\s*([QPL]\d+)$/i,                        m=>`https://www.wikidata.org/wiki/${m[1].toUpperCase()}`],
+  ["VIAF",     /^viaf:\s*(\d+)$/i,                                 m=>`https://viaf.org/viaf/${m[1]}`],
+  ["NDL PID",  /^(?:info:ndljp\/pid\/|ndljp:\s*)(\d+)$/i,          m=>`https://dl.ndl.go.jp/pid/${m[1]}`],
+  ["CRID",     /^crid:\s*(\d+)$/i,                                 m=>`https://cir.nii.ac.jp/crid/${m[1]}`],
+  ["NCID",     /^ncid:\s*([A-Z]{2}\d+X?)$/i,                       m=>`https://ci.nii.ac.jp/ncid/${m[1].toUpperCase()}`],
+  ["NAID",     /^naid:\s*(\d+)$/i,                                 m=>`https://ci.nii.ac.jp/naid/${m[1]}`],
+];
+
+// URN:NBN の国別解決サービス
+function nbnResolver(urn){
+  const cc = urn.match(/^urn:nbn:([a-z]{2})/i)[1].toLowerCase();
+  const map = {
+    fi:`https://urn.fi/${urn}`, se:`https://urn.kb.se/resolve?urn=${urn}`,
+    nl:`https://persistent-identifier.nl/${urn}`, no:`https://urn.nb.no/${urn}`,
+  };
+  return map[cc] || `https://nbn-resolving.org/${urn}`;
+}
+
+// リダイレクト型の解決サービスのホスト
+const RESOLVER_HOSTS = /^(?:n2t\.net|arks\.org|purl\.org|purl\.archive\.org|purl\.oclc\.org|w3id\.org|nbn-resolving\.(?:org|de)|urn\.fi|urn\.kb\.se|urn\.nb\.no|persistent-identifier\.nl|identifiers\.org)$/i;
+
+function classify(raw){
+  const s = raw.trim();
+  if(!s) return null;
+  let m;
+
+  m = s.match(/^(?:doi:\s*|info:doi\/|https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/\S+)$/i);
+  if(m) return {method:"handle", type:"DOI", id:dec(m[1]), base:"https://doi.org", input:s};
+
+  m = s.match(/^(?:hdl:\s*|info:hdl\/|https?:\/\/hdl\.handle\.net\/)(\d[\w.]*\/\S+)$/i);
+  if(m) return {method:"handle", type:"ハンドル", id:dec(m[1]), base:"https://hdl.handle.net", input:s};
+
+  m = s.match(/^(?:https?:\/\/(?:n2t\.net|arks\.org)\/)?ark:\/?(\d{5}\/\S+)$/i);
+  if(m) return {method:"redirect", type:"ARK", id:`ark:/${m[1]}`, resolver:`https://n2t.net/ark:/${m[1]}`, input:s};
+
+  m = s.match(/^urn:nbn:[a-z]{2}[:\-]\S+$/i);
+  if(m) return {method:"redirect", type:"URN:NBN", id:s, resolver:nbnResolver(s), input:s};
+
+  for(const [type, re, make] of TEMPLATES){
+    m = s.match(re);
+    if(m) return {method:"template", type, id:s, url:make(m), input:s};
+  }
+
+  if(/^https?:\/\//i.test(s)){
+    try{
+      const u = new URL(s);
+      if(RESOLVER_HOSTS.test(u.hostname)) return {method:"redirect", type:"解決サービスのURL", id:s, resolver:s, input:s};
+      return {method:"url", url:s, input:s};
+    }catch{ return {method:"bad", input:s}; }
+  }
+
+  // prefix:id 形式（例 pubmed:123, taxonomy:9606）は identifiers.org で解決
+  m = s.match(/^([a-z][a-z0-9._-]*):(\S+)$/i);
+  if(m && !/^\d+$/.test(m[1])) return {method:"curie", type:"Compact ID", id:s, resolver:`https://identifiers.org/${s}`, input:s};
+
+  // ドメインから始まるURL（https:// 省略）
+  if(/^[\w-]+(\.[\w-]+)+(\/|$)/.test(s)) return {method:"url", url:"https://"+s, input:s};
+
+  return {method:"bad", input:s};
+}
+
+/* ---------- 通信まわり ---------- */
+async function get(url){
+  const ctl = new AbortController();
+  const t = setTimeout(()=>ctl.abort(), TIMEOUT);
+  try{
+    const r = await fetch(url, {signal:ctl.signal});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return r;
+  } finally { clearTimeout(t); }
+}
+
+// doi.org / hdl.handle.net の Handle API で解決先URLを取る
+async function resolveHandle(base, id){
+  const j = await (await get(`${base}/api/handles/${encPath(id)}?type=URL`)).json();
+  const v = (j.values||[]).find(x=>x.type==="URL");
+  if(!v) throw new Error("解決先URLなし");
+  return safeHttp(v.data.value);
+}
+
+// 解決サービスのリダイレクトをたどる（行き先のサイトが読み取りを許可している場合のみ成功）
+async function followRedirect(url){
+  const r = await get(url);
+  if(r.url && r.url.replace(/\/$/,"") !== url.replace(/\/$/,"")) return safeHttp(r.url);
+  throw new Error("解決先URLを取得できません");
+}
+
+// identifiers.org の解決API
+async function resolveCurie(curie){
+  const j = await (await get(`https://resolver.api.identifiers.org/${encPath(curie)}`)).json();
+  const list = j?.payload?.resolvedResources || [];
+  const r = list.find(x=>x.official) || list[0];
+  if(!r?.compactIdentifierResolvedUrl) throw new Error("未登録の識別子です");
+  return safeHttp(r.compactIdentifierResolvedUrl);
+}
+
+// Wayback の保存状況（最新 or 指定日に最も近いもの）
+async function availability(url, ts){
+  const j = await (await get(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}${ts?`&timestamp=${ts}`:""}`)).json();
+  return j?.archived_snapshots?.closest || null;
+}
+
+function fmtTs(ts){
+  return `${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)} ${ts.slice(8,10)}:${ts.slice(10,12)}`;
+}
+
+/* ---------- 表示 ---------- */
+function fillLinks(el, url, ts, dateLabel){
+  const latest = `${WB}/web/2/${url}`;
+  const dated = ts ? `${WB}/web/${ts}/${url}` : null;
+  const links = [
+    dated && [dated, `${dateLabel} 付近の保存版`],
+    [latest, "最新の保存版を表示"],
+    [`${WB}/web/*/${url}`, "保存履歴カレンダー"],
+    [`${WB}/web/*/${url.replace(/\/?$/,"/")}*`, "配下のURL一覧"],
+  ].filter(Boolean);
+  el.querySelector(".links").innerHTML =
+    links.map(([h,t])=>`<a href="${esc(h)}" target="_blank" rel="noopener">${esc(t)}</a>`).join("");
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "copy"; b.textContent = "Wayback のリンクをコピー";
+  b.addEventListener("click", async ()=>{
+    try{ await navigator.clipboard.writeText(dated||latest); b.textContent = "コピーしました"; }
+    catch{ b.textContent = dated||latest; }
+  });
+  el.appendChild(b);
+}
+
+async function process(entry, el, ts, dateLabel){
+  const meta = el.querySelector(".meta"), st = el.querySelector(".status");
+  const addMeta = (k,v,link) => meta.insertAdjacentHTML("beforeend",
+    `<dt>${esc(k)}</dt><dd>${link && /^https?:\/\//i.test(v)?`<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`:esc(v)}</dd>`);
+
+  if(entry.method==="bad"){
+    addMeta("入力", entry.input);
+    st.className="status bad"; st.textContent="URLまたは識別子として読めませんでした。";
+    return;
+  }
+
+  let url = entry.url;
+  if(entry.method==="url"){
+    addMeta("URL", url, true);
+  } else {
+    addMeta(entry.type, entry.method==="handle" ? entry.id : entry.input);
+    if(entry.method==="template"){
+      addMeta("変換先", url, true);
+    } else {
+      st.textContent = "解決中…";
+      const fallback = entry.method==="handle" ? `${entry.base}/${entry.id}` : entry.resolver;
+      try{
+        url = entry.method==="handle" ? await resolveHandle(entry.base, entry.id)
+            : entry.method==="curie"  ? await resolveCurie(entry.id)
+            : await followRedirect(entry.resolver);
+        addMeta("解決先", url, true);
+      }catch(e){
+        url = fallback;
+        addMeta("解決先", "解決できませんでした（" + (e?.message||"エラー") + "）");
+        st.className="status warn";
+        st.textContent="解決先を取得できなかったため、識別子のURLで Wayback を探します。保存版のリダイレクトから本体のページにたどり着ける場合があります。";
+        fillLinks(el, url, ts, dateLabel);
+        return;
+      }
+    }
+  }
+
+  fillLinks(el, url, ts, dateLabel);
+  st.className="status"; st.textContent = "保存状況を確認中…";
+  try{
+    const snap = await availability(url, ts);
+    if(snap){ st.className="status ok"; st.textContent = `保存あり（${ts?"指定日に最も近い保存":"最新の保存"}：${fmtTs(snap.timestamp)}）`; }
+    else{ st.className="status bad"; st.textContent = "Wayback に保存が見つかりません。"; }
+  }catch{
+    st.className="status warn"; st.textContent="保存状況を確認できませんでした（リンクからは確認できます）。";
+  }
+}
+
+async function run(){
+  const entries = $("urls").value.split(/\r?\n/).map(classify).filter(Boolean);
+  const out = $("out");
+  out.innerHTML = "";
+  if(!entries.length){ out.innerHTML = '<p class="hint">URLまたは識別子を入力してください。</p>'; return; }
+  const dateLabel = $("date").value;
+  const ts = dateLabel.replace(/-/g,"");
+  $("go").disabled = true;
+  const jobs = entries.map(e=>{
+    const el = document.createElement("div");
+    el.className = "item";
+    el.innerHTML = `<dl class="meta"></dl><div class="status"></div><div class="links"></div>`;
+    out.appendChild(el);
+    return process(e, el, ts, dateLabel);
+  });
+  await Promise.allSettled(jobs);
+  $("go").disabled = false;
+}
+
+$("f").addEventListener("submit", e=>{ e.preventDefault(); run(); });
+$("clear").addEventListener("click", ()=>{ $("urls").value=""; $("date").value=""; $("out").innerHTML=""; $("urls").focus(); });
+</script>
+</body>
+</html>
